@@ -4,12 +4,10 @@ from aiogram.types import Message, CallbackQuery
 from aiogram.filters import Command
 
 from app.keyboards import tasks
-from app.db.operations import set_task, del_task
+from app.db.operations import set_task, del_task, get_user, update_last_message_id
 
 
 task_router = Router()
-
-last_message_ids = {}
 
 TASKS_MESSAGE = (
     "Для добавления задачи напишите её в чат.\n"
@@ -23,18 +21,19 @@ async def tasks_message(message: Message):
 
     user_id = message.from_user.id
     keyboard = await tasks(user_id)
-
-    if user_id in last_message_ids:  
+    user = await get_user(user_id)
+    
+    if user.last_message_id:
         try:
             await message.bot.delete_message(
                 chat_id=message.chat.id,
-                message_id=last_message_ids[user_id]
+                message_id=user.last_message_id
             )
         except Exception as e:
             print(f"Не удалось удалить предыдущее сообщение: {e}")
 
     sent_message = await message.answer(TASKS_MESSAGE, reply_markup=keyboard)
-    last_message_ids[user_id] = sent_message.message_id
+    await update_last_message_id(user_id, sent_message.message_id)
 
 @task_router.message(F.text)
 async def add_task(message: Message):
@@ -53,9 +52,10 @@ async def add_task(message: Message):
         keyboard = await tasks(user_id)
 
         try:
+            user = await get_user(user_id)
             await message.bot.edit_message_text(
                 chat_id=message.chat.id,
-                message_id=last_message_ids[user_id],
+                message_id=user.last_message_id,
                 text=TASKS_MESSAGE, 
                 reply_markup=keyboard
             )
@@ -63,7 +63,7 @@ async def add_task(message: Message):
             print(f"Не удалось отредактировать предыдущее сообщение: {e}")
 
             sent_message = await message.answer(TASKS_MESSAGE, reply_markup=keyboard)
-            last_message_ids[user_id] = sent_message.message_id
+            await update_last_message_id(user_id, sent_message.message_id)
 
 @task_router.callback_query(F.data.startswith("task_"))
 async def delete_task(callback: CallbackQuery):
